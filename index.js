@@ -1,4 +1,4 @@
-const net = require("net");
+const WebSocket = require("ws");
 const readline = require("readline");
 
 const rl = readline.createInterface({
@@ -11,21 +11,32 @@ class Client {
     this.host = host;
     this.port = port;
     this.username = null;
-    this.socket = new net.Socket();
+    this.socket = null;
     this.lastPrivateMessageSender = null;
   }
 
   connect() {
-    this.socket.connect(this.port, this.host, () => {
+    if (this.host === "localhost") {
+      this.socket = new WebSocket(
+        `ws://${this.host}:${this.port}`,
+        "echo-protocol"
+      );
+    } else {
+      this.socket = new WebSocket(
+        `wss://${this.host}:${this.port}`,
+        "echo-protocol"
+      );
+    }
+
+    this.socket.on("open", () => {
       console.log("Connected to the Slack-Clone server");
     });
 
-    this.socket.on("data", (data) => {
-      const message = data.toString();
+    this.socket.on("message", (message) => {
       this.handleData(message);
     });
 
-    this.socket.on("end", () => {
+    this.socket.on("close", () => {
       console.log("Disconnected from the server");
       process.exit();
     });
@@ -41,7 +52,7 @@ class Client {
 
     if (message.startsWith("Welcome") || message.includes("Enter a command:")) {
       console.log(message);
-    } else if (message.includes("(private):")) {
+    } else if (message.includes("(private)")) {
       const senderUsername = message.split(" ")[0];
       this.lastPrivateMessageSender = senderUsername;
       console.log(message);
@@ -73,8 +84,19 @@ class Client {
     }
   }
 
+  handleReactionInput(input) {
+    const [command, messageId, emoji] = input.split(" ");
+
+    if (command === "/react") {
+      this.send(`/react ${messageId} ${emoji}`);
+    } else {
+      console.log("Invalid command. Please enter a valid command.");
+      rl.prompt();
+    }
+  }
+
   send(message) {
-    this.socket.write(`${message}\n`);
+    this.socket.send(message);
   }
 
   start() {
@@ -84,9 +106,13 @@ class Client {
     });
 
     rl.on("line", (input) => {
-      if (input.startsWith("/reply")) {
+      const [command] = input.split(" ");
+
+      if (command === "/reply") {
         this.handleReplyInput(input.substring("/reply ".length));
-      } else if (input.startsWith("/pm")) {
+      } else if (command === "/r") {
+        this.handleReplyInput(input.substring("/r ".length));
+      } else if (command === "/pm") {
         this.handlePrivateMessageInput(input);
       } else {
         this.send(input);
@@ -97,6 +123,7 @@ class Client {
   }
 }
 
-const client = new Client("localhost", 3000); // Default host and port
+const client = new Client("nabu-server.onrender.com", ""); // Update host and port accordingly
+// const client = new Client("localhost", 3000); // Update host and port accordingly
 client.connect();
 client.start();
